@@ -1,0 +1,989 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>INSIGHT — Insider Threat Detection</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Exo+2:wght@300;400;600;700;900&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+:root{
+  --bg:#04060f;
+  --bg2:#080d1c;
+  --bg3:#0c1228;
+  --border:#12203d;
+  --border2:#1e3358;
+  --accent:#00f5c4;
+  --accent2:#0af;
+  --red:#ff3f6c;
+  --amber:#f0a500;
+  --purple:#7c6fff;
+  --text:#cdd8f0;
+  --text2:#6b7a9e;
+  --text3:#38445e;
+  --mono:'Share Tech Mono',monospace;
+  --sans:'Exo 2',sans-serif;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--sans);overflow:hidden}
+
+/* ── SCANLINE OVERLAY ── */
+body::before{
+  content:'';position:fixed;inset:0;pointer-events:none;z-index:9999;
+  background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,.04) 2px,rgba(0,0,0,.04) 4px);
+}
+/* ── GRID BACKGROUND ── */
+body::after{
+  content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
+  background-image:
+    linear-gradient(rgba(0,245,196,.02) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(0,245,196,.02) 1px,transparent 1px);
+  background-size:40px 40px;
+}
+
+/* ── LAYOUT ── */
+.shell{display:flex;height:100vh;position:relative;z-index:1}
+
+/* ── SIDEBAR ── */
+.sidebar{
+  width:220px;flex-shrink:0;background:var(--bg2);
+  border-right:1px solid var(--border);
+  display:flex;flex-direction:column;
+  padding:0;overflow:hidden;
+}
+.sidebar-logo{
+  padding:24px 20px 20px;
+  border-bottom:1px solid var(--border);
+}
+.logo-mark{
+  font-family:var(--mono);font-size:20px;font-weight:400;
+  color:var(--accent);letter-spacing:4px;
+  text-shadow:0 0 20px rgba(0,245,196,.5);
+}
+.logo-sub{
+  font-size:9px;letter-spacing:2px;color:var(--text2);
+  margin-top:4px;text-transform:uppercase;
+}
+.sidebar-nav{padding:16px 0;flex:1}
+.nav-section{
+  font-family:var(--mono);font-size:9px;letter-spacing:3px;
+  color:var(--text3);padding:12px 20px 6px;text-transform:uppercase;
+}
+.nav-item{
+  display:flex;align-items:center;gap:10px;
+  padding:10px 20px;cursor:pointer;
+  font-size:12px;font-weight:600;color:var(--text2);
+  letter-spacing:.5px;transition:all .2s;
+  border-left:2px solid transparent;position:relative;
+}
+.nav-item:hover{color:var(--accent);background:rgba(0,245,196,.03);border-left-color:rgba(0,245,196,.3)}
+.nav-item.active{color:var(--accent);background:rgba(0,245,196,.06);border-left-color:var(--accent)}
+.nav-item.active::after{
+  content:'';position:absolute;right:0;top:0;bottom:0;width:1px;
+  background:var(--accent);box-shadow:0 0 8px var(--accent);
+}
+.nav-dot{width:6px;height:6px;border-radius:50%;background:currentColor;opacity:.6}
+
+.sidebar-stats{
+  padding:16px 20px;border-top:1px solid var(--border);
+  display:flex;flex-direction:column;gap:10px;
+}
+.stat-row{display:flex;justify-content:space-between;align-items:center}
+.stat-label{font-size:10px;color:var(--text2);letter-spacing:.5px}
+.stat-val{font-family:var(--mono);font-size:14px;font-weight:400}
+.stat-val.red{color:var(--red);text-shadow:0 0 10px rgba(255,63,108,.4)}
+.stat-val.amber{color:var(--amber)}
+.stat-val.green{color:var(--accent)}
+
+.sys-status{
+  padding:12px 20px;border-top:1px solid var(--border);
+}
+.status-dot{
+  display:inline-flex;align-items:center;gap:6px;
+  font-family:var(--mono);font-size:10px;color:var(--accent);
+}
+.status-dot::before{
+  content:'';width:6px;height:6px;border-radius:50%;
+  background:var(--accent);box-shadow:0 0 8px var(--accent);
+  animation:pulse 2s infinite;
+}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+
+/* ── MAIN CONTENT ── */
+.main{flex:1;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column}
+.main::-webkit-scrollbar{width:4px}
+.main::-webkit-scrollbar-track{background:var(--bg)}
+.main::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+
+/* ── TOPBAR ── */
+.topbar{
+  height:56px;flex-shrink:0;background:var(--bg2);
+  border-bottom:1px solid var(--border);
+  display:flex;align-items:center;justify-content:space-between;
+  padding:0 28px;position:sticky;top:0;z-index:100;
+}
+.topbar-title{
+  font-size:11px;letter-spacing:4px;color:var(--text2);
+  text-transform:uppercase;font-weight:600;
+}
+.topbar-right{display:flex;align-items:center;gap:20px}
+.topbar-time{font-family:var(--mono);font-size:12px;color:var(--accent);letter-spacing:2px}
+.threat-level{
+  font-family:var(--mono);font-size:10px;letter-spacing:2px;
+  padding:4px 12px;border:1px solid var(--red);
+  color:var(--red);border-radius:2px;
+  background:rgba(255,63,108,.08);
+  animation:flicker 3s infinite;
+}
+@keyframes flicker{0%,98%,100%{opacity:1}99%{opacity:.6}}
+
+/* ── SCREEN PANELS ── */
+.screen{display:none;padding:24px 28px;animation:fadeIn .3s ease}
+.screen.active{display:block}
+@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+
+/* ── PAGE HEADER ── */
+.page-header{margin-bottom:24px}
+.page-title{
+  font-size:22px;font-weight:900;color:#fff;letter-spacing:1px;
+  text-transform:uppercase;
+}
+.page-subtitle{
+  font-family:var(--mono);font-size:10px;color:var(--text2);
+  letter-spacing:2px;margin-top:4px;
+}
+
+/* ── KPI ROW ── */
+.kpi-row{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px}
+.kpi-card{
+  background:var(--bg2);border:1px solid var(--border);
+  border-radius:4px;padding:16px 20px;position:relative;overflow:hidden;
+  transition:border-color .2s;
+}
+.kpi-card::before{
+  content:'';position:absolute;top:0;left:0;right:0;height:2px;
+  background:var(--accent-color,var(--accent));
+  box-shadow:0 0 12px var(--accent-color,var(--accent));
+}
+.kpi-card:hover{border-color:var(--border2)}
+.kpi-label{font-size:9px;letter-spacing:3px;color:var(--text2);text-transform:uppercase;margin-bottom:8px}
+.kpi-value{font-size:28px;font-weight:900;font-family:var(--mono);color:#fff}
+.kpi-sub{font-size:10px;color:var(--text2);margin-top:4px}
+.kpi-card.red{--accent-color:var(--red)}
+.kpi-card.amber{--accent-color:var(--amber)}
+.kpi-card.purple{--accent-color:var(--purple)}
+
+/* ── SECTION HEADER ── */
+.section-header{
+  display:flex;align-items:center;gap:10px;margin-bottom:14px;
+}
+.section-title{
+  font-size:11px;font-weight:700;letter-spacing:3px;
+  color:var(--text);text-transform:uppercase;
+}
+.section-line{flex:1;height:1px;background:var(--border)}
+
+/* ── GRID LAYOUTS ── */
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px}
+.grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:20px}
+
+/* ── CARD ── */
+.card{
+  background:var(--bg2);border:1px solid var(--border);
+  border-radius:4px;padding:20px;
+}
+.card-title{
+  font-size:10px;letter-spacing:3px;color:var(--text2);
+  text-transform:uppercase;margin-bottom:16px;
+  font-family:var(--mono);
+}
+
+/* ── LEADERBOARD ── */
+.lb-header{
+  display:grid;grid-template-columns:40px 1fr 100px 100px 80px 90px;
+  gap:0;padding:8px 16px;
+  font-size:9px;letter-spacing:2px;color:var(--text3);
+  text-transform:uppercase;border-bottom:1px solid var(--border);
+}
+.lb-row{
+  display:grid;grid-template-columns:40px 1fr 100px 100px 80px 90px;
+  gap:0;padding:12px 16px;align-items:center;
+  border-bottom:1px solid rgba(18,32,61,.5);
+  transition:background .15s;cursor:pointer;
+}
+.lb-row:hover{background:rgba(255,255,255,.02)}
+.lb-row.critical{border-left:2px solid var(--red)}
+.lb-row.high{border-left:2px solid var(--amber)}
+.lb-row.moderate{border-left:2px solid var(--purple)}
+.lb-row.low{border-left:2px solid var(--accent)}
+.lb-rank{font-family:var(--mono);font-size:12px;color:var(--text2)}
+.lb-emp{font-size:13px;font-weight:700;color:#fff}
+.lb-score{font-family:var(--mono);font-size:14px;font-weight:400}
+.lb-avg{font-family:var(--mono);font-size:11px;color:var(--text2)}
+.lb-days{font-size:11px;color:var(--text2)}
+.lb-bar-wrap{height:3px;background:var(--bg3);border-radius:2px;margin-top:4px}
+.lb-bar{height:3px;border-radius:2px;transition:width .6s ease}
+
+/* ── BADGE ── */
+.badge{
+  display:inline-block;font-family:var(--mono);
+  font-size:9px;letter-spacing:2px;padding:3px 10px;
+  border-radius:2px;font-weight:400;
+}
+.badge.critical{background:rgba(255,63,108,.12);border:1px solid rgba(255,63,108,.4);color:var(--red)}
+.badge.high{background:rgba(240,165,0,.12);border:1px solid rgba(240,165,0,.4);color:var(--amber)}
+.badge.moderate{background:rgba(124,111,255,.12);border:1px solid rgba(124,111,255,.4);color:var(--purple)}
+.badge.low{background:rgba(0,245,196,.08);border:1px solid rgba(0,245,196,.3);color:var(--accent)}
+
+/* ── EMPLOYEE SELECT ── */
+.emp-select-wrap{margin-bottom:20px}
+.emp-select-label{font-size:9px;letter-spacing:3px;color:var(--text2);text-transform:uppercase;margin-bottom:8px}
+select{
+  background:var(--bg3);border:1px solid var(--border2);
+  color:var(--text);font-family:var(--mono);font-size:13px;
+  padding:10px 16px;border-radius:4px;cursor:pointer;
+  outline:none;width:280px;
+  appearance:none;
+}
+select:focus{border-color:var(--accent);box-shadow:0 0 0 1px rgba(0,245,196,.2)}
+.select-wrapper{position:relative;display:inline-block}
+.select-wrapper::after{
+  content:'▾';position:absolute;right:14px;top:50%;transform:translateY(-50%);
+  color:var(--text2);pointer-events:none;font-size:12px;
+}
+
+/* ── CHART WRAPPER ── */
+.chart-box{position:relative;height:240px}
+
+/* ── SIGNAL BARS ── */
+.signal-item{margin-bottom:14px}
+.signal-top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px}
+.signal-name{font-size:10px;letter-spacing:1px;color:var(--text2);text-transform:uppercase}
+.signal-val{font-family:var(--mono);font-size:12px;color:#fff}
+.signal-bar-bg{height:4px;background:var(--bg3);border-radius:2px;overflow:hidden}
+.signal-bar-fill{height:4px;border-radius:2px;transition:width .8s cubic-bezier(.4,0,.2,1)}
+.signal-delta{font-size:9px;margin-top:3px}
+.signal-delta.up{color:var(--red)}
+.signal-delta.down{color:var(--accent)}
+.signal-delta.neutral{color:var(--text2)}
+
+/* ── XAI REASONS ── */
+.reason-card{
+  background:rgba(255,63,108,.04);
+  border:1px solid rgba(255,63,108,.2);
+  border-left:3px solid var(--red);
+  border-radius:3px;padding:12px 16px;margin-bottom:8px;
+  font-size:12px;color:var(--text);line-height:1.6;
+}
+
+/* ── ALERT PANEL ── */
+.alert-item{
+  background:rgba(255,63,108,.06);
+  border:1px solid rgba(255,63,108,.2);
+  border-left:3px solid var(--red);
+  border-radius:3px;padding:14px 18px;margin-bottom:10px;
+  display:flex;justify-content:space-between;align-items:center;
+}
+.alert-item.high{
+  background:rgba(240,165,0,.06);
+  border-color:rgba(240,165,0,.2);
+  border-left-color:var(--amber);
+}
+.alert-info{}
+.alert-emp{font-size:14px;font-weight:700;color:#fff;font-family:var(--mono)}
+.alert-detail{font-size:11px;color:var(--text2);margin-top:3px}
+.alert-score{font-family:var(--mono);font-size:24px;font-weight:400}
+.alert-score.critical{color:var(--red);text-shadow:0 0 20px rgba(255,63,108,.4)}
+.alert-score.high-c{color:var(--amber)}
+.alert-action{
+  font-size:10px;letter-spacing:1px;
+  padding:5px 14px;border:1px solid currentColor;border-radius:2px;
+  cursor:pointer;margin-top:6px;display:inline-block;
+  transition:background .2s;font-family:var(--mono);
+}
+.alert-action:hover{background:rgba(255,63,108,.15)}
+
+/* ── LIVE DEMO ── */
+.demo-arena{
+  background:var(--bg3);border:1px solid var(--border);
+  border-radius:4px;padding:24px;margin-bottom:20px;text-align:center;
+}
+.demo-scores{display:grid;grid-template-columns:1fr auto 1fr;gap:20px;align-items:center;margin-bottom:24px}
+.score-before,.score-after{
+  background:var(--bg2);border:1px solid var(--border);
+  border-radius:4px;padding:20px;
+}
+.score-label{font-size:9px;letter-spacing:3px;color:var(--text2);text-transform:uppercase;margin-bottom:8px}
+.score-number{font-family:var(--mono);font-size:40px;font-weight:400;color:var(--accent)}
+.score-number.critical-score{color:var(--red);text-shadow:0 0 30px rgba(255,63,108,.6)}
+.score-arrow{font-size:24px;color:var(--text2)}
+.attack-btn{
+  background:linear-gradient(135deg,rgba(255,63,108,.15),rgba(255,63,108,.05));
+  border:1px solid var(--red);border-radius:4px;
+  color:var(--red);font-family:var(--mono);font-size:13px;
+  letter-spacing:3px;padding:14px 40px;cursor:pointer;
+  text-transform:uppercase;transition:all .2s;
+  box-shadow:0 0 20px rgba(255,63,108,.1);
+}
+.attack-btn:hover{
+  background:linear-gradient(135deg,rgba(255,63,108,.25),rgba(255,63,108,.1));
+  box-shadow:0 0 30px rgba(255,63,108,.25);
+  transform:translateY(-1px);
+}
+.attack-btn:disabled{opacity:.4;cursor:not-allowed;transform:none}
+
+.blast-result{
+  display:none;
+  background:rgba(255,63,108,.08);border:2px solid var(--red);
+  border-radius:6px;padding:28px;text-align:center;margin-bottom:20px;
+  animation:blastIn .4s cubic-bezier(.34,1.56,.64,1);
+}
+@keyframes blastIn{from{transform:scale(.9);opacity:0}to{transform:scale(1);opacity:1}}
+.blast-label{font-family:var(--mono);font-size:11px;letter-spacing:4px;color:var(--red);margin-bottom:8px}
+.blast-score{font-family:var(--mono);font-size:64px;font-weight:400;color:var(--red);line-height:1;
+  text-shadow:0 0 40px rgba(255,63,108,.5)}
+.blast-title{font-size:14px;font-weight:700;color:var(--red);margin-top:8px;letter-spacing:2px}
+
+.trigger-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:16px}
+.trigger-card{
+  background:rgba(255,63,108,.04);border:1px solid rgba(255,63,108,.15);
+  border-left:2px solid var(--red);border-radius:3px;padding:12px 14px;text-align:left;
+}
+.trigger-field{font-size:9px;letter-spacing:2px;color:var(--text2);margin-bottom:4px;text-transform:uppercase}
+.trigger-value{font-family:var(--mono);font-size:16px;color:var(--red);font-weight:400}
+.trigger-normal{font-size:9px;color:var(--text3);margin-top:2px}
+
+/* ── PLAYBOOK ── */
+.playbook-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.playbook-card{
+  background:var(--bg2);border:1px solid var(--border);
+  border-radius:4px;padding:16px;
+}
+.playbook-card.pb-critical{border-top:2px solid var(--red)}
+.playbook-card.pb-high{border-top:2px solid var(--amber)}
+.playbook-card.pb-moderate{border-top:2px solid var(--purple)}
+.playbook-title{
+  font-family:var(--mono);font-size:10px;letter-spacing:2px;
+  margin-bottom:12px;
+}
+.playbook-title.red{color:var(--red)}
+.playbook-title.amber{color:var(--amber)}
+.playbook-title.purple{color:var(--purple)}
+.playbook-item{
+  font-size:11px;color:var(--text2);padding:4px 0;
+  border-bottom:1px solid rgba(255,255,255,.03);
+  display:flex;align-items:flex-start;gap:6px;line-height:1.4;
+}
+.playbook-item::before{content:'→';color:var(--text3);font-size:10px;flex-shrink:0;margin-top:1px}
+
+/* ── TERMINAL FOOTER ── */
+.terminal{
+  font-family:var(--mono);font-size:10px;color:var(--text3);
+  padding:8px 20px;border-top:1px solid var(--border);
+  display:flex;gap:24px;flex-shrink:0;background:var(--bg2);
+}
+.terminal span{letter-spacing:1px}
+.terminal .blink{animation:blink 1s step-end infinite}
+@keyframes blink{50%{opacity:0}}
+
+/* ── SCROLLBAR for leaderboard ── */
+.lb-scroll{overflow-y:auto;max-height:420px}
+.lb-scroll::-webkit-scrollbar{width:3px}
+.lb-scroll::-webkit-scrollbar-thumb{background:var(--border2)}
+
+/* ── LOADING SPINNER ── */
+.spinner{
+  display:inline-block;width:14px;height:14px;
+  border:2px solid rgba(0,245,196,.2);border-top-color:var(--accent);
+  border-radius:50%;animation:spin .6s linear infinite;
+  vertical-align:middle;margin-right:8px;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ── EMPLOYEE HEADER CARD ── */
+.emp-header{
+  display:grid;grid-template-columns:1fr auto;gap:20px;
+  align-items:start;margin-bottom:20px;
+}
+.emp-name{font-size:26px;font-weight:900;color:#fff;font-family:var(--mono);letter-spacing:2px}
+.emp-meta{font-size:11px;color:var(--text2);margin-top:4px;letter-spacing:.5px}
+.emp-status-box{
+  background:var(--bg3);border:1px solid var(--border);
+  border-radius:4px;padding:16px 20px;text-align:right;min-width:180px;
+}
+.emp-status-label{font-size:9px;letter-spacing:2px;color:var(--text2);text-transform:uppercase;margin-bottom:4px}
+.emp-score-big{font-family:var(--mono);font-size:36px;font-weight:400;line-height:1}
+</style>
+</head>
+<body>
+
+<div class="shell">
+
+<!-- ═══ SIDEBAR ═══ -->
+<nav class="sidebar">
+  <div class="sidebar-logo">
+    <div class="logo-mark">INSIGHT</div>
+    <div class="logo-sub">Behavioral Intelligence System</div>
+  </div>
+
+  <div class="sidebar-nav">
+    <div class="nav-section">Monitoring</div>
+    <div class="nav-item active" onclick="show('leaderboard',this)">
+      <div class="nav-dot"></div> Leaderboard
+    </div>
+    <div class="nav-item" onclick="show('deepdive',this)">
+      <div class="nav-dot"></div> Employee Deep Dive
+    </div>
+    <div class="nav-section">Threats</div>
+    <div class="nav-item" onclick="show('alerts',this)">
+      <div class="nav-dot"></div> Alert Panel
+    </div>
+    <div class="nav-item" onclick="show('demo',this)">
+      <div class="nav-dot"></div> Live Simulation
+    </div>
+  </div>
+
+  <div class="sidebar-stats">
+    <div class="stat-row">
+      <span class="stat-label">Monitored</span>
+      <span class="stat-val green" id="s-total">20</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">Critical</span>
+      <span class="stat-val red" id="s-critical">—</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">High Risk</span>
+      <span class="stat-val amber" id="s-high">—</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">Avg IRI</span>
+      <span class="stat-val" id="s-avg">—</span>
+    </div>
+  </div>
+
+  <div class="sys-status">
+    <div class="status-dot">MODEL ACTIVE</div>
+  </div>
+</nav>
+
+<!-- ═══ MAIN ═══ -->
+<div class="main">
+
+  <!-- TOPBAR -->
+  <div class="topbar">
+    <div class="topbar-title" id="topbar-label">Employee Risk Leaderboard</div>
+    <div class="topbar-right">
+      <div class="topbar-time" id="clock">—</div>
+      <div class="threat-level">THREAT LEVEL: HIGH</div>
+    </div>
+  </div>
+
+  <!-- ════ SCREEN 1: LEADERBOARD ════ -->
+  <div class="screen active" id="screen-leaderboard">
+    <div class="page-header">
+      <div class="page-title">Risk Leaderboard</div>
+      <div class="page-subtitle">// All employees ranked by peak insider risk index — 30-day monitoring period</div>
+    </div>
+
+    <div class="kpi-row" id="kpi-row"></div>
+
+    <div class="section-header">
+      <div class="section-title">Rankings</div>
+      <div class="section-line"></div>
+    </div>
+
+    <div class="card" style="padding:0">
+      <div class="lb-header">
+        <div>Rank</div><div>Employee</div><div>Peak IRI</div>
+        <div>Avg IRI</div><div>Flagged</div><div>Status</div>
+      </div>
+      <div class="lb-scroll" id="lb-body"></div>
+    </div>
+  </div>
+
+  <!-- ════ SCREEN 2: DEEP DIVE ════ -->
+  <div class="screen" id="screen-deepdive">
+    <div class="page-header">
+      <div class="page-title">Employee Deep Dive</div>
+      <div class="page-subtitle">// 30-day behavioral timeline + signal breakdown</div>
+    </div>
+
+    <div class="emp-select-wrap">
+      <div class="emp-select-label">Select Employee</div>
+      <div class="select-wrapper">
+        <select id="emp-select" onchange="renderDeepDive()"></select>
+      </div>
+    </div>
+
+    <div class="emp-header" id="emp-header"></div>
+
+    <div class="section-header">
+      <div class="section-title">30-Day IRI Timeline</div>
+      <div class="section-line"></div>
+    </div>
+    <div class="card" style="margin-bottom:20px">
+      <div class="chart-box">
+        <canvas id="timeline-chart"></canvas>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="card" id="signal-breakdown">
+        <div class="card-title">Signal Breakdown — Last 5 Days Avg</div>
+      </div>
+      <div class="card" id="xai-box">
+        <div class="card-title">Why Flagged? — Explainable AI</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════ SCREEN 3: ALERTS ════ -->
+  <div class="screen" id="screen-alerts">
+    <div class="page-header">
+      <div class="page-title">Alert Panel</div>
+      <div class="page-subtitle">// Active threats requiring immediate attention — sorted by severity</div>
+    </div>
+
+    <div class="kpi-row" id="alert-kpi"></div>
+
+    <div class="section-header">
+      <div class="section-title">Critical — Immediate Action Required</div>
+      <div class="section-line"></div>
+    </div>
+    <div id="critical-alerts"></div>
+
+    <div class="section-header" style="margin-top:8px">
+      <div class="section-title">High — Monitor Closely</div>
+      <div class="section-line"></div>
+    </div>
+    <div id="high-alerts"></div>
+
+    <div class="section-header" style="margin-top:8px">
+      <div class="section-title">Response Playbook</div>
+      <div class="section-line"></div>
+    </div>
+    <div class="playbook-grid">
+      <div class="playbook-card pb-critical">
+        <div class="playbook-title red">🚨 CRITICAL</div>
+        <div class="playbook-item">Notify CISO immediately</div>
+        <div class="playbook-item">Suspend system access</div>
+        <div class="playbook-item">Escalate to HR + Legal</div>
+        <div class="playbook-item">Preserve all evidence logs</div>
+        <div class="playbook-item">Initiate forensic investigation</div>
+      </div>
+      <div class="playbook-card pb-high">
+        <div class="playbook-title amber">🔴 HIGH</div>
+        <div class="playbook-item">Alert Security team lead</div>
+        <div class="playbook-item">Increase log monitoring x3</div>
+        <div class="playbook-item">Review recent file access</div>
+        <div class="playbook-item">Schedule HR check-in</div>
+        <div class="playbook-item">Flag in SIEM dashboard</div>
+      </div>
+      <div class="playbook-card pb-moderate">
+        <div class="playbook-title purple">🟡 MODERATE</div>
+        <div class="playbook-item">Log for weekly review</div>
+        <div class="playbook-item">Watch next 48 hours closely</div>
+        <div class="playbook-item">Note in employee file</div>
+        <div class="playbook-item">No immediate action needed</div>
+        <div class="playbook-item">Monitor trend direction</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════ SCREEN 4: LIVE DEMO ════ -->
+  <div class="screen" id="screen-demo">
+    <div class="page-header">
+      <div class="page-title">Live Threat Simulation</div>
+      <div class="page-subtitle">// Inject a rogue event and watch the ML model respond in real time</div>
+    </div>
+
+    <div class="demo-arena">
+      <div class="demo-scores">
+        <div class="score-before">
+          <div class="score-label">Normal Baseline Score</div>
+          <div class="score-number" id="score-before">12.4</div>
+          <div style="margin-top:8px"><span class="badge low">LOW RISK</span></div>
+          <div style="margin-top:10px;font-size:10px;color:var(--text2);letter-spacing:1px">EMP-001 · Day 1–25 avg</div>
+        </div>
+        <div class="score-arrow">→</div>
+        <div class="score-after" id="score-after-box">
+          <div class="score-label">After Attack Injection</div>
+          <div class="score-number" id="score-after">??.?</div>
+          <div style="margin-top:8px" id="score-after-badge"><span class="badge moderate">AWAITING</span></div>
+          <div style="margin-top:10px;font-size:10px;color:var(--text2);letter-spacing:1px">Press button to simulate</div>
+        </div>
+      </div>
+
+      <div style="margin-bottom:16px">
+        <div style="font-size:10px;color:var(--text2);letter-spacing:2px;margin-bottom:6px;text-transform:uppercase">Attack Vector Preview</div>
+        <div class="trigger-grid" style="margin-top:0;margin-bottom:0">
+          <div class="trigger-card"><div class="trigger-field">Login Hour</div><div class="trigger-value" style="color:var(--text2)">02:00 AM</div><div class="trigger-normal">Normal: 8–10 AM</div></div>
+          <div class="trigger-card"><div class="trigger-field">Files Accessed</div><div class="trigger-value" style="color:var(--text2)">230 files</div><div class="trigger-normal">Normal: ~20/day</div></div>
+          <div class="trigger-card"><div class="trigger-field">Privilege Attempts</div><div class="trigger-value" style="color:var(--text2)">9 attempts</div><div class="trigger-normal">Normal: 0–1</div></div>
+          <div class="trigger-card"><div class="trigger-field">Sentiment Score</div><div class="trigger-value" style="color:var(--text2)">-0.91</div><div class="trigger-normal">Normal: +0.5</div></div>
+        </div>
+      </div>
+
+      <button class="attack-btn" id="attack-btn" onclick="runSimulation()">
+        🚨 &nbsp; SIMULATE INSIDER ATTACK &nbsp; 🚨
+      </button>
+    </div>
+
+    <!-- Blast result (hidden until click) -->
+    <div class="blast-result" id="blast-result">
+      <div class="blast-label">INSIDER THREAT DETECTED</div>
+      <div class="blast-score" id="blast-score">—</div>
+      <div class="blast-title">🚨 CRITICAL — ESCALATE IMMEDIATELY</div>
+      <div style="margin-top:20px;font-size:10px;color:rgba(255,63,108,.6);letter-spacing:2px">ALL 5 SIGNAL VECTORS BREACHED</div>
+    </div>
+
+    <div id="trigger-detail" style="display:none">
+      <div class="section-header">
+        <div class="section-title">What Triggered The Alert</div>
+        <div class="section-line"></div>
+      </div>
+      <div class="trigger-grid">
+        <div class="trigger-card"><div class="trigger-field">⏰ Login Hour</div><div class="trigger-value">02:00 AM</div><div class="trigger-normal">Normal: 8–10 AM</div></div>
+        <div class="trigger-card"><div class="trigger-field">📁 Files Accessed</div><div class="trigger-value">230 files</div><div class="trigger-normal">Normal: ~20/day</div></div>
+        <div class="trigger-card"><div class="trigger-field">🔐 Privilege Attempts</div><div class="trigger-value">9 attempts</div><div class="trigger-normal">Normal: 0–1</div></div>
+        <div class="trigger-card"><div class="trigger-field">💾 USB Event</div><div class="trigger-value">DETECTED</div><div class="trigger-normal">Normal: Rare/None</div></div>
+        <div class="trigger-card"><div class="trigger-field">💬 Sentiment</div><div class="trigger-value">-0.91</div><div class="trigger-normal">Normal: +0.50</div></div>
+        <div class="trigger-card"><div class="trigger-field">📧 Emails Sent</div><div class="trigger-value">58 emails</div><div class="trigger-normal">Normal: ~15/day</div></div>
+      </div>
+      <div style="margin-top:14px;font-size:9px;color:var(--text3);letter-spacing:1px;text-align:center">
+        INSIGHT detected this anomaly in real time. All decisions require human review by HR and Security teams.
+      </div>
+    </div>
+  </div>
+
+  <!-- TERMINAL FOOTER -->
+  <div class="terminal">
+    <span>INSIGHT v2.1.0</span>
+    <span>ISO FOREST MODEL ACTIVE</span>
+    <span>MONITORING PERIOD: DAY 1–30</span>
+    <span id="footer-status" class="blink">● LIVE</span>
+  </div>
+</div>
+</div>
+
+<script>
+/* ═══════════════════════════════════════
+   DATA — All 20 employees, 30 days each
+   (same data as the ML layer output)
+═══════════════════════════════════════ */
+const RAW=[{"id":"E001","nm":"Amit","dy":1,"lh":10.83,"fa":30,"pa":2,"es":77,"ue":1,"ss":0.27,"as":19.28,"ia":0,"ir":39.96,"rl":"M"},{"id":"E001","nm":"Amit","dy":2,"lh":11.52,"fa":91,"pa":4,"es":78,"ue":1,"ss":0.28,"as":28.79,"ia":0,"ir":50.52,"rl":"M"},{"id":"E001","nm":"Amit","dy":3,"lh":10.57,"fa":113,"pa":3,"es":77,"ue":0,"ss":0.17,"as":78.43,"ia":1,"ir":62.62,"rl":"H"},{"id":"E001","nm":"Amit","dy":4,"lh":10.67,"fa":50,"pa":3,"es":21,"ue":1,"ss":0.75,"as":19.38,"ia":0,"ir":31.5,"rl":"M"},{"id":"E001","nm":"Amit","dy":5,"lh":9.72,"fa":62,"pa":5,"es":70,"ue":0,"ss":0.57,"as":50.04,"ia":0,"ir":48.27,"rl":"M"},{"id":"E001","nm":"Amit","dy":6,"lh":10.4,"fa":31,"pa":2,"es":19,"ue":0,"ss":0.44,"as":51.76,"ia":0,"ir":41.7,"rl":"M"},{"id":"E001","nm":"Amit","dy":7,"lh":8.32,"fa":76,"pa":5,"es":71,"ue":1,"ss":0.26,"as":35.21,"ia":0,"ir":57.08,"rl":"M"},{"id":"E001","nm":"Amit","dy":8,"lh":11.43,"fa":107,"pa":3,"es":73,"ue":1,"ss":0.77,"as":39.83,"ia":0,"ir":39.18,"rl":"M"},{"id":"E001","nm":"Amit","dy":9,"lh":8.55,"fa":100,"pa":0,"es":76,"ue":1,"ss":0.12,"as":74.76,"ia":0,"ir":58.9,"rl":"M"},{"id":"E001","nm":"Amit","dy":10,"lh":10.27,"fa":44,"pa":6,"es":5,"ue":1,"ss":0.88,"as":91.9,"ia":1,"ir":67.76,"rl":"H"},{"id":"E001","nm":"Amit","dy":11,"lh":8.47,"fa":39,"pa":2,"es":65,"ue":0,"ss":0.41,"as":55.15,"ia":0,"ir":43.81,"rl":"M"},{"id":"E001","nm":"Amit","dy":12,"lh":11.68,"fa":21,"pa":0,"es":73,"ue":1,"ss":0.73,"as":71.91,"ia":0,"ir":42.51,"rl":"M"},{"id":"E001","nm":"Amit","dy":13,"lh":9.12,"fa":30,"pa":7,"es":36,"ue":0,"ss":0.42,"as":67.01,"ia":0,"ir":65.8,"rl":"H"},{"id":"E001","nm":"Amit","dy":14,"lh":8.82,"fa":91,"pa":6,"es":58,"ue":1,"ss":0.38,"as":21.5,"ia":0,"ir":52.1,"rl":"M"},{"id":"E001","nm":"Amit","dy":15,"lh":10.33,"fa":46,"pa":1,"es":29,"ue":1,"ss":0.83,"as":20.14,"ia":0,"ir":22.81,"rl":"L"},{"id":"E001","nm":"Amit","dy":16,"lh":10.5,"fa":104,"pa":0,"es":45,"ue":0,"ss":0.51,"as":71.3,"ia":0,"ir":40.77,"rl":"M"},{"id":"E001","nm":"Amit","dy":17,"lh":9.9,"fa":23,"pa":3,"es":53,"ue":1,"ss":0.41,"as":0.41,"ia":0,"ir":32.41,"rl":"M"},{"id":"E001","nm":"Amit","dy":18,"lh":9.93,"fa":44,"pa":5,"es":35,"ue":1,"ss":0.79,"as":0.0,"ia":0,"ir":29.75,"rl":"L"},{"id":"E001","nm":"Amit","dy":19,"lh":9.25,"fa":86,"pa":5,"es":38,"ue":1,"ss":0.26,"as":27.44,"ia":0,"ir":53.98,"rl":"M"},{"id":"E001","nm":"Amit","dy":20,"lh":8.8,"fa":40,"pa":4,"es":71,"ue":1,"ss":0.63,"as":1.47,"ia":0,"ir":30.84,"rl":"M"},{"id":"E001","nm":"Amit","dy":21,"lh":11.58,"fa":110,"pa":4,"es":89,"ue":0,"ss":0.57,"as":90.77,"ia":1,"ir":61.06,"rl":"H"},{"id":"E001","nm":"Amit","dy":22,"lh":8.88,"fa":8,"pa":4,"es":69,"ue":1,"ss":0.55,"as":13.78,"ia":0,"ir":37.76,"rl":"M"},{"id":"E001","nm":"Amit","dy":23,"lh":9.73,"fa":34,"pa":6,"es":38,"ue":0,"ss":0.53,"as":57.24,"ia":0,"ir":55.65,"rl":"M"},{"id":"E001","nm":"Amit","dy":24,"lh":8.2,"fa":37,"pa":4,"es":17,"ue":0,"ss":0.27,"as":100.0,"ia":1,"ir":72.25,"rl":"H"},{"id":"E001","nm":"Amit","dy":25,"lh":10.77,"fa":25,"pa":2,"es":83,"ue":0,"ss":0.3,"as":64.66,"ia":0,"ir":50.36,"rl":"M"},{"id":"E001","nm":"Amit","dy":26,"lh":3.0,"fa":186,"pa":7,"es":45,"ue":1,"ss":-0.042,"as":96.58,"ia":1,"ir":96.18,"rl":"C"},{"id":"E001","nm":"Amit","dy":27,"lh":3.0,"fa":186,"pa":7,"es":45,"ue":1,"ss":-0.042,"as":96.58,"ia":1,"ir":96.18,"rl":"C"},{"id":"E001","nm":"Amit","dy":28,"lh":3.0,"fa":186,"pa":7,"es":45,"ue":1,"ss":-0.042,"as":96.58,"ia":1,"ir":96.18,"rl":"C"},{"id":"E001","nm":"Amit","dy":29,"lh":3.0,"fa":186,"pa":7,"es":45,"ue":1,"ss":-0.042,"as":96.58,"ia":1,"ir":96.18,"rl":"C"},{"id":"E001","nm":"Amit","dy":30,"lh":3.0,"fa":186,"pa":7,"es":45,"ue":1,"ss":-0.042,"as":96.58,"ia":1,"ir":96.18,"rl":"C"},{"id":"E002","nm":"Rahul","dy":1,"lh":8.28,"fa":98,"pa":2,"es":73,"ue":1,"ss":0.89,"as":72.25,"ia":1,"ir":45.65,"rl":"M"},{"id":"E002","nm":"Rahul","dy":2,"lh":10.03,"fa":20,"pa":3,"es":9,"ue":0,"ss":0.14,"as":32.27,"ia":0,"ir":44.91,"rl":"M"},{"id":"E002","nm":"Rahul","dy":3,"lh":9.35,"fa":28,"pa":7,"es":27,"ue":1,"ss":0.11,"as":63.57,"ia":0,"ir":79.18,"rl":"H"},{"id":"E002","nm":"Rahul","dy":4,"lh":11.67,"fa":31,"pa":0,"es":35,"ue":0,"ss":0.68,"as":71.39,"ia":0,"ir":36.56,"rl":"M"},{"id":"E002","nm":"Rahul","dy":5,"lh":9.12,"fa":27,"pa":1,"es":5,"ue":0,"ss":0.17,"as":53.29,"ia":0,"ir":45.57,"rl":"M"},{"id":"E002","nm":"Rahul","dy":6,"lh":9.05,"fa":111,"pa":5,"es":71,"ue":0,"ss":0.51,"as":55.2,"ia":0,"ir":51.83,"rl":"M"},{"id":"E002","nm":"Rahul","dy":7,"lh":9.9,"fa":80,"pa":0,"es":15,"ue":1,"ss":0.42,"as":6.71,"ia":0,"ir":24.18,"rl":"L"},{"id":"E002","nm":"Rahul","dy":8,"lh":11.62,"fa":57,"pa":1,"es":50,"ue":1,"ss":0.4,"as":25.89,"ia":0,"ir":35.86,"rl":"M"},{"id":"E002","nm":"Rahul","dy":9,"lh":10.28,"fa":90,"pa":5,"es":36,"ue":0,"ss":0.58,"as":14.28,"ia":0,"ir":33.71,"rl":"M"},{"id":"E002","nm":"Rahul","dy":10,"lh":9.08,"fa":36,"pa":6,"es":34,"ue":1,"ss":0.77,"as":48.21,"ia":0,"ir":53.03,"rl":"M"},{"id":"E002","nm":"Rahul","dy":11,"lh":11.55,"fa":101,"pa":5,"es":33,"ue":1,"ss":0.53,"as":35.67,"ia":0,"ir":50.52,"rl":"M"},{"id":"E002","nm":"Rahul","dy":12,"lh":10.72,"fa":70,"pa":0,"es":18,"ue":1,"ss":0.12,"as":36.47,"ia":0,"ir":43.59,"rl":"M"},{"id":"E002","nm":"Rahul","dy":13,"lh":9.63,"fa":87,"pa":1,"es":82,"ue":1,"ss":0.38,"as":17.97,"ia":0,"ir":33.19,"rl":"M"},{"id":"E002","nm":"Rahul","dy":14,"lh":10.92,"fa":107,"pa":4,"es":62,"ue":0,"ss":0.23,"as":34.32,"ia":0,"ir":46.98,"rl":"M"},{"id":"E002","nm":"Rahul","dy":15,"lh":11.15,"fa":59,"pa":3,"es":3,"ue":1,"ss":0.42,"as":18.98,"ia":0,"ir":39.59,"rl":"M"},{"id":"E002","nm":"Rahul","dy":16,"lh":11.47,"fa":25,"pa":6,"es":4,"ue":0,"ss":0.86,"as":93.24,"ia":1,"ir":61.8,"rl":"H"},{"id":"E002","nm":"Rahul","dy":17,"lh":10.03,"fa":88,"pa":3,"es":50,"ue":1,"ss":0.77,"as":0.0,"ia":0,"ir":23.25,"rl":"L"},{"id":"E002","nm":"Rahul","dy":18,"lh":8.32,"fa":83,"pa":3,"es":22,"ue":0,"ss":0.37,"as":31.37,"ia":0,"ir":38.8,"rl":"M"},{"id":"E002","nm":"Rahul","dy":19,"lh":9.02,"fa":83,"pa":3,"es":83,"ue":1,"ss":0.53,"as":5.53,"ia":0,"ir":31.46,"rl":"M"},{"id":"E002","nm":"Rahul","dy":20,"lh":10.8,"fa":108,"pa":3,"es":54,"ue":0,"ss":0.19,"as":17.11,"ia":0,"ir":37.59,"rl":"M"},{"id":"E002","nm":"Rahul","dy":21,"lh":8.42,"fa":44,"pa":3,"es":76,"ue":1,"ss":0.79,"as":57.22,"ia":0,"ir":45.64,"rl":"M"},{"id":"E002","nm":"Rahul","dy":22,"lh":11.2,"fa":22,"pa":1,"es":53,"ue":1,"ss":0.34,"as":39.11,"ia":0,"ir":42.64,"rl":"M"},{"id":"E002","nm":"Rahul","dy":23,"lh":9.13,"fa":36,"pa":1,"es":45,"ue":1,"ss":0.79,"as":47.28,"ia":0,"ir":34.66,"rl":"M"},{"id":"E002","nm":"Rahul","dy":24,"lh":9.63,"fa":42,"pa":7,"es":70,"ue":1,"ss":0.73,"as":57.74,"ia":0,"ir":61.35,"rl":"H"},{"id":"E002","nm":"Rahul","dy":25,"lh":10.05,"fa":12,"pa":4,"es":83,"ue":0,"ss":0.16,"as":77.42,"ia":1,"ir":65.97,"rl":"H"},{"id":"E002","nm":"Rahul","dy":26,"lh":1.0,"fa":200,"pa":6,"es":79,"ue":1,"ss":-0.515,"as":100.0,"ia":1,"ir":100,"rl":"C"},{"id":"E002","nm":"Rahul","dy":27,"lh":1.0,"fa":200,"pa":6,"es":79,"ue":1,"ss":-0.515,"as":100.0,"ia":1,"ir":100,"rl":"C"},{"id":"E002","nm":"Rahul","dy":28,"lh":1.0,"fa":200,"pa":6,"es":79,"ue":1,"ss":-0.515,"as":100.0,"ia":1,"ir":100,"rl":"C"},{"id":"E002","nm":"Rahul","dy":29,"lh":1.0,"fa":200,"pa":6,"es":79,"ue":1,"ss":-0.515,"as":100.0,"ia":1,"ir":100,"rl":"C"},{"id":"E002","nm":"Rahul","dy":30,"lh":1.0,"fa":200,"pa":6,"es":79,"ue":1,"ss":-0.515,"as":100.0,"ia":1,"ir":100,"rl":"C"},{"id":"E003","nm":"Priya","dy":1,"lh":11.13,"fa":38,"pa":7,"es":3,"ue":1,"ss":0.61,"as":47.53,"ia":0,"ir":60.26,"rl":"H"},{"id":"E003","nm":"Priya","dy":2,"lh":10.57,"fa":49,"pa":4,"es":29,"ue":1,"ss":0.86,"as":21.59,"ia":0,"ir":33.14,"rl":"M"},{"id":"E003","nm":"Priya","dy":6,"lh":9.22,"fa":8,"pa":7,"es":62,"ue":0,"ss":0.14,"as":100.0,"ia":1,"ir":86.0,"rl":"C"},{"id":"E003","nm":"Priya","dy":10,"lh":10.68,"fa":19,"pa":1,"es":1,"ue":0,"ss":0.6,"as":28.22,"ia":0,"ir":24.79,"rl":"L"},{"id":"E003","nm":"Priya","dy":15,"lh":8.62,"fa":64,"pa":0,"es":22,"ue":1,"ss":0.75,"as":24.63,"ia":0,"ir":23.1,"rl":"L"},{"id":"E003","nm":"Priya","dy":20,"lh":10.48,"fa":46,"pa":5,"es":18,"ue":0,"ss":0.55,"as":0.0,"ia":0,"ir":28.75,"rl":"L"},{"id":"E003","nm":"Priya","dy":25,"lh":10.98,"fa":6,"pa":4,"es":55,"ue":1,"ss":0.18,"as":72.46,"ia":1,"ir":70.48,"rl":"H"},{"id":"E003","nm":"Priya","dy":26,"lh":1.0,"fa":240,"pa":8,"es":55,"ue":1,"ss":-0.822,"as":87.44,"ia":1,"ir":100,"rl":"C"},{"id":"E003","nm":"Priya","dy":27,"lh":1.0,"fa":240,"pa":8,"es":55,"ue":1,"ss":-0.822,"as":87.44,"ia":1,"ir":100,"rl":"C"},{"id":"E003","nm":"Priya","dy":28,"lh":1.0,"fa":240,"pa":8,"es":55,"ue":1,"ss":-0.822,"as":87.44,"ia":1,"ir":100,"rl":"C"},{"id":"E003","nm":"Priya","dy":29,"lh":1.0,"fa":240,"pa":8,"es":55,"ue":1,"ss":-0.822,"as":87.44,"ia":1,"ir":100,"rl":"C"},{"id":"E003","nm":"Priya","dy":30,"lh":1.0,"fa":240,"pa":8,"es":55,"ue":1,"ss":-0.822,"as":87.44,"ia":1,"ir":100,"rl":"C"},{"id":"E004","nm":"Neha","dy":1,"lh":11.77,"fa":107,"pa":3,"es":3,"ue":1,"ss":0.62,"as":67.03,"ia":0,"ir":53.81,"rl":"M"},{"id":"E004","nm":"Neha","dy":5,"lh":11.7,"fa":80,"pa":6,"es":69,"ue":0,"ss":0.29,"as":39.2,"ia":0,"ir":54.43,"rl":"M"},{"id":"E004","nm":"Neha","dy":10,"lh":9.42,"fa":22,"pa":7,"es":84,"ue":0,"ss":0.58,"as":56.34,"ia":0,"ir":57.54,"rl":"M"},{"id":"E004","nm":"Neha","dy":13,"lh":11.9,"fa":5,"pa":7,"es":21,"ue":1,"ss":0.18,"as":77.11,"ia":1,"ir":82.84,"rl":"C"},{"id":"E004","nm":"Neha","dy":20,"lh":11.6,"fa":78,"pa":0,"es":15,"ue":0,"ss":0.37,"as":69.16,"ia":0,"ir":43.41,"rl":"M"},{"id":"E004","nm":"Neha","dy":25,"lh":11.62,"fa":38,"pa":3,"es":13,"ue":1,"ss":0.86,"as":53.32,"ia":0,"ir":42.33,"rl":"M"},{"id":"E004","nm":"Neha","dy":28,"lh":11.7,"fa":16,"pa":7,"es":1,"ue":1,"ss":0.64,"as":83.33,"ia":1,"ir":73.83,"rl":"H"},{"id":"E004","nm":"Neha","dy":30,"lh":10.5,"fa":93,"pa":6,"es":20,"ue":1,"ss":0.62,"as":31.05,"ia":0,"ir":49.92,"rl":"M"},{"id":"E005","nm":"Karan","dy":1,"lh":9.42,"fa":32,"pa":7,"es":25,"ue":1,"ss":0.15,"as":31.31,"ia":0,"ir":65.27,"rl":"H"},{"id":"E005","nm":"Karan","dy":8,"lh":9.05,"fa":47,"pa":7,"es":70,"ue":1,"ss":0.82,"as":65.85,"ia":1,"ir":62.34,"rl":"H"},{"id":"E005","nm":"Karan","dy":15,"lh":9.08,"fa":21,"pa":1,"es":26,"ue":0,"ss":0.27,"as":18.94,"ia":0,"ir":29.33,"rl":"L"},{"id":"E005","nm":"Karan","dy":25,"lh":11.67,"fa":43,"pa":7,"es":79,"ue":0,"ss":0.4,"as":100.0,"ia":1,"ir":79.5,"rl":"H"},{"id":"E005","nm":"Karan","dy":26,"lh":10.8,"fa":120,"pa":7,"es":46,"ue":0,"ss":0.16,"as":96.23,"ia":1,"ir":83.99,"rl":"C"},{"id":"E005","nm":"Karan","dy":29,"lh":11.17,"fa":115,"pa":7,"es":29,"ue":0,"ss":0.35,"as":66.28,"ia":1,"ir":67.26,"rl":"H"},{"id":"E005","nm":"Karan","dy":30,"lh":11.43,"fa":60,"pa":3,"es":83,"ue":0,"ss":0.21,"as":81.63,"ia":1,"ir":62.9,"rl":"H"},{"id":"E009","nm":"Vikas","dy":1,"lh":10.52,"fa":83,"pa":7,"es":31,"ue":1,"ss":0.69,"as":14.99,"ia":0,"ir":45.25,"rl":"M"},{"id":"E009","nm":"Vikas","dy":5,"lh":8.38,"fa":48,"pa":7,"es":16,"ue":1,"ss":0.36,"as":93.4,"ia":1,"ir":84.86,"rl":"C"},{"id":"E009","nm":"Vikas","dy":10,"lh":9.87,"fa":115,"pa":4,"es":48,"ue":0,"ss":0.75,"as":66.35,"ia":0,"ir":46.79,"rl":"M"},{"id":"E009","nm":"Vikas","dy":20,"lh":10.9,"fa":54,"pa":7,"es":74,"ue":0,"ss":0.71,"as":37.56,"ia":0,"ir":46.77,"rl":"M"},{"id":"E009","nm":"Vikas","dy":28,"lh":9.65,"fa":51,"pa":7,"es":39,"ue":0,"ss":0.16,"as":83.84,"ia":0,"ir":79.04,"rl":"H"},{"id":"E009","nm":"Vikas","dy":30,"lh":8.5,"fa":105,"pa":2,"es":43,"ue":1,"ss":0.37,"as":57.51,"ia":0,"ir":52.75,"rl":"M"},{"id":"E010","nm":"Pooja","dy":1,"lh":11.22,"fa":115,"pa":7,"es":71,"ue":1,"ss":0.27,"as":100.0,"ia":1,"ir":89.75,"rl":"C"},{"id":"E010","nm":"Pooja","dy":10,"lh":8.22,"fa":15,"pa":5,"es":37,"ue":1,"ss":0.5,"as":63.64,"ia":0,"ir":62.46,"rl":"H"},{"id":"E010","nm":"Pooja","dy":20,"lh":10.82,"fa":48,"pa":4,"es":9,"ue":1,"ss":0.26,"as":34.89,"ia":0,"ir":53.46,"rl":"M"},{"id":"E010","nm":"Pooja","dy":30,"lh":11.85,"fa":116,"pa":7,"es":72,"ue":1,"ss":0.43,"as":96.13,"ia":1,"ir":84.2,"rl":"C"},{"id":"E016","nm":"Kavita","dy":1,"lh":8.93,"fa":95,"pa":0,"es":35,"ue":1,"ss":0.41,"as":34.73,"ia":0,"ir":35.64,"rl":"M"},{"id":"E016","nm":"Kavita","dy":6,"lh":11.35,"fa":22,"pa":7,"es":53,"ue":1,"ss":0.13,"as":63.06,"ia":0,"ir":78.47,"rl":"H"},{"id":"E016","nm":"Kavita","dy":22,"lh":9.25,"fa":13,"pa":6,"es":66,"ue":0,"ss":0.39,"as":82.62,"ia":1,"ir":69.3,"rl":"H"},{"id":"E016","nm":"Kavita","dy":27,"lh":8.65,"fa":25,"pa":4,"es":90,"ue":1,"ss":0.15,"as":95.3,"ia":1,"ir":80.37,"rl":"C"},{"id":"E016","nm":"Kavita","dy":30,"lh":11.45,"fa":59,"pa":1,"es":88,"ue":0,"ss":0.13,"as":68.71,"ia":1,"ir":52.73,"rl":"M"},{"id":"E018","nm":"Nisha","dy":1,"lh":10.57,"fa":20,"pa":7,"es":60,"ue":1,"ss":0.32,"as":70.36,"ia":0,"ir":76.64,"rl":"H"},{"id":"E018","nm":"Nisha","dy":9,"lh":11.42,"fa":98,"pa":7,"es":64,"ue":0,"ss":0.89,"as":92.84,"ia":1,"ir":64.39,"rl":"H"},{"id":"E018","nm":"Nisha","dy":24,"lh":9.03,"fa":46,"pa":7,"es":42,"ue":1,"ss":0.17,"as":100.0,"ia":1,"ir":92.25,"rl":"C"},{"id":"E018","nm":"Nisha","dy":30,"lh":10.57,"fa":104,"pa":5,"es":62,"ue":1,"ss":0.73,"as":72.95,"ia":0,"ir":60.43,"rl":"H"}];
+
+/* ─── Build employee map ─── */
+function buildEmpMap(){
+  const m={};
+  for(const r of RAW){
+    if(!m[r.id])m[r.id]={id:r.id,nm:r.nm,days:[]};
+    m[r.id].days.push(r);
+  }
+  // Fill missing days with interpolation for full 30-day lines
+  const empIds=Object.keys(m);
+  for(const id of empIds){
+    const ds=m[id].days.sort((a,b)=>a.dy-b.dy);
+    const full=[];
+    for(let d=1;d<=30;d++){
+      const found=ds.find(x=>x.dy===d);
+      if(found){full.push(found);}
+      else{
+        const prev=ds.filter(x=>x.dy<d).pop()||ds[0];
+        const next=ds.find(x=>x.dy>d)||ds[ds.length-1];
+        const t=(prev&&next&&prev.dy!==next.dy)?((d-prev.dy)/(next.dy-prev.dy)):0;
+        full.push({...prev,dy:d,ir:+(prev.ir+(next.ir-prev.ir)*t).toFixed(2),ia:0});
+      }
+    }
+    m[id].days=full;
+  }
+  return m;
+}
+const EMP=buildEmpMap();
+const empIds=Object.keys(EMP);
+
+function maxIri(id){return Math.max(...EMP[id].days.map(d=>d.ir))}
+function avgIri(id){const ds=EMP[id].days;return ds.reduce((s,d)=>s+d.ir,0)/ds.length}
+function anomCount(id){return EMP[id].days.filter(d=>d.ia).length}
+function peakRl(id){const m=maxIri(id);return m>=80?'C':m>=60?'H':m>=30?'M':'L'}
+
+function rlClass(rl){return{C:'critical',H:'high',M:'moderate',L:'low'}[rl]}
+function rlLabel(rl){return{C:'CRITICAL',H:'HIGH',M:'MODERATE',L:'LOW'}[rl]}
+function iriColor(v){
+  if(v>=80)return'#ff3f6c';
+  if(v>=60)return'#f0a500';
+  if(v>=30)return'#7c6fff';
+  return'#00f5c4';
+}
+
+/* ─── SIDEBAR STATS ─── */
+function updateSidebarStats(){
+  const crit=empIds.filter(e=>maxIri(e)>=80).length;
+  const high=empIds.filter(e=>maxIri(e)>=60&&maxIri(e)<80).length;
+  const avg=empIds.reduce((s,e)=>s+avgIri(e),0)/empIds.length;
+  document.getElementById('s-critical').textContent=crit;
+  document.getElementById('s-high').textContent=high;
+  document.getElementById('s-avg').textContent=avg.toFixed(1);
+}
+
+/* ─── CLOCK ─── */
+function updateClock(){
+  const n=new Date();
+  const hh=String(n.getHours()).padStart(2,'0');
+  const mm=String(n.getMinutes()).padStart(2,'0');
+  const ss=String(n.getSeconds()).padStart(2,'0');
+  document.getElementById('clock').textContent=`${hh}:${mm}:${ss}`;
+}
+setInterval(updateClock,1000);updateClock();
+
+/* ─── NAVIGATION ─── */
+const labels={'leaderboard':'Employee Risk Leaderboard','deepdive':'Employee Deep Dive — Behavioral Analysis','alerts':'Alert Panel — Active Threats','demo':'Live Threat Simulation'};
+function show(id,el){
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+  document.getElementById('screen-'+id).classList.add('active');
+  el.classList.add('active');
+  document.getElementById('topbar-label').textContent=labels[id];
+  if(id==='deepdive')renderDeepDive();
+  if(id==='alerts')renderAlerts();
+}
+
+/* ═══ SCREEN 1: LEADERBOARD ═══ */
+function renderLeaderboard(){
+  const crit=empIds.filter(e=>maxIri(e)>=80).length;
+  const high=empIds.filter(e=>maxIri(e)>=60&&maxIri(e)<80).length;
+  const top=empIds.reduce((a,b)=>maxIri(a)>maxIri(b)?a:b);
+  const allAvg=empIds.reduce((s,e)=>s+avgIri(e),0)/empIds.length;
+
+  document.getElementById('kpi-row').innerHTML=`
+    <div class="kpi-card red"><div class="kpi-label">Critical Employees</div><div class="kpi-value" style="color:#ff3f6c">${crit}</div><div class="kpi-sub">Requires immediate action</div></div>
+    <div class="kpi-card amber"><div class="kpi-label">High Risk</div><div class="kpi-value" style="color:#f0a500">${high}</div><div class="kpi-sub">Elevated monitoring</div></div>
+    <div class="kpi-card purple"><div class="kpi-label">Highest IRI Score</div><div class="kpi-value" style="color:#fff">${maxIri(top).toFixed(0)}</div><div class="kpi-sub">${EMP[top].nm} (${top})</div></div>
+    <div class="kpi-card"><div class="kpi-label">Fleet Average IRI</div><div class="kpi-value">${allAvg.toFixed(1)}</div><div class="kpi-sub">All 20 employees</div></div>
+  `;
+
+  const sorted=[...empIds].sort((a,b)=>maxIri(b)-maxIri(a));
+  let html='';
+  sorted.forEach((id,i)=>{
+    const pk=maxIri(id),av=avgIri(id),ac=anomCount(id),rl=peakRl(id);
+    const cls=rlClass(rl),lbl=rlLabel(rl),col=iriColor(pk);
+    html+=`<div class="lb-row ${cls}" onclick="jumpToEmployee('${id}')">
+      <div class="lb-rank">#${i+1}</div>
+      <div><div class="lb-emp">${EMP[id].nm} <span style="font-size:10px;color:var(--text2);font-weight:400">${id}</span></div>
+        <div class="lb-bar-wrap" style="width:120px"><div class="lb-bar" style="width:${pk}%;background:${col}"></div></div>
+      </div>
+      <div class="lb-score" style="color:${col}">${pk.toFixed(1)}</div>
+      <div class="lb-avg">${av.toFixed(1)}</div>
+      <div class="lb-days">${ac} days</div>
+      <div><span class="badge ${cls}">${lbl}</span></div>
+    </div>`;
+  });
+  document.getElementById('lb-body').innerHTML=html;
+}
+
+function jumpToEmployee(id){
+  document.getElementById('emp-select').value=id;
+  show('deepdive',document.querySelectorAll('.nav-item')[1]);
+}
+
+/* ═══ SCREEN 2: DEEP DIVE ═══ */
+let timelineChart=null;
+function renderDeepDive(){
+  const sel=document.getElementById('emp-select').value;
+  if(!EMP[sel])return;
+  const e=EMP[sel];
+  const pk=maxIri(sel),av=avgIri(sel),ac=anomCount(sel),rl=peakRl(sel);
+  const cls=rlClass(rl),lbl=rlLabel(rl),col=iriColor(pk);
+
+  document.getElementById('emp-header').innerHTML=`
+    <div>
+      <div class="emp-name">${sel}</div>
+      <div class="emp-meta">${e.nm} &nbsp;·&nbsp; 30-day monitoring period &nbsp;·&nbsp; ${ac} anomalous days detected</div>
+    </div>
+    <div class="emp-status-box" style="border-top:2px solid ${col}">
+      <div class="emp-status-label">Peak Risk Score</div>
+      <div class="emp-score-big" style="color:${col}">${pk.toFixed(1)}</div>
+      <div style="margin-top:6px"><span class="badge ${cls}">${lbl}</span></div>
+    </div>
+  `;
+
+  // Chart
+  const days=e.days.map(d=>d.dy);
+  const iris=e.days.map(d=>d.ir);
+  const ptColors=iris.map(v=>iriColor(v));
+
+  if(timelineChart)timelineChart.destroy();
+  const ctx=document.getElementById('timeline-chart').getContext('2d');
+  timelineChart=new Chart(ctx,{
+    type:'line',
+    data:{
+      labels:days,
+      datasets:[{
+        data:iris,
+        borderColor:'rgba(0,245,196,.6)',
+        backgroundColor:'rgba(0,245,196,.03)',
+        borderWidth:1.5,fill:true,tension:.3,
+        pointBackgroundColor:ptColors,
+        pointBorderColor:'#04060f',
+        pointRadius:e.days.map(d=>d.ia?5:3),
+        pointHoverRadius:7,
+      }]
+    },
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false},tooltip:{
+        backgroundColor:'#080d1c',borderColor:'#1e3358',borderWidth:1,
+        titleColor:'#cdd8f0',bodyColor:'#6b7a9e',
+        callbacks:{title:i=>`Day ${i[0].label}`,body:i=>`IRI: ${i[0].raw.toFixed(1)}`}
+      }},
+      scales:{
+        x:{ticks:{color:'#38445e',font:{size:9},maxRotation:0},grid:{color:'rgba(18,32,61,.4)'},border:{color:'#12203d'}},
+        y:{min:0,max:100,ticks:{color:'#38445e',font:{size:9}},grid:{color:'rgba(18,32,61,.4)'},border:{color:'#12203d'}}
+      }
+    }
+  });
+
+  // Signal breakdown
+  const last5=e.days.slice(-5);
+  const avFa=last5.reduce((s,d)=>s+d.fa,0)/5;
+  const avPa=last5.reduce((s,d)=>s+d.pa,0)/5;
+  const avEs=last5.reduce((s,d)=>s+d.es,0)/5;
+  const avUe=last5.reduce((s,d)=>s+d.ue,0)/5;
+  const avSs=last5.reduce((s,d)=>s+d.ss,0)/5;
+  const avLh=last5.reduce((s,d)=>s+d.lh,0)/5;
+
+  const signals=[
+    {n:'Files Accessed',v:avFa,max:200,norm:40,col:'#ff3f6c'},
+    {n:'Privilege Attempts',v:avPa,max:10,norm:1,col:'#f0a500'},
+    {n:'Emails Sent',v:avEs,max:100,norm:30,col:'#7c6fff'},
+    {n:'USB Events',v:avUe*100,max:100,norm:10,col:'#f0a500'},
+    {n:'Sentiment Score',v:(avSs+1)*50,max:100,norm:70,col:'#00f5c4'},
+    {n:'Login Hour',v:(avLh/24)*100,max:100,norm:40,col:'#7c6fff'},
+  ];
+  let sbHtml='<div class="card-title">Signal Breakdown — Last 5 Days Avg</div>';
+  for(const s of signals){
+    const pct=Math.min(100,(s.v/s.max)*100);
+    const dev=((s.v-s.norm)/s.norm*100);
+    const dCls=Math.abs(dev)>50?(dev>0?'up':'down'):'neutral';
+    const dTxt=`${dev>0?'+':''}${dev.toFixed(0)}% vs baseline`;
+    sbHtml+=`<div class="signal-item">
+      <div class="signal-top"><span class="signal-name">${s.n}</span><span class="signal-val">${s.v.toFixed(1)}</span></div>
+      <div class="signal-bar-bg"><div class="signal-bar-fill" style="width:${pct.toFixed(0)}%;background:${s.col}"></div></div>
+      <div class="signal-delta ${dCls}">${dTxt}</div>
+    </div>`;
+  }
+  document.getElementById('signal-breakdown').innerHTML=sbHtml;
+
+  // XAI
+  let xaiHtml='<div class="card-title">Why Flagged? — Explainable AI</div>';
+  if(pk>60){
+    const last=e.days[e.days.length-1];
+    const reasons=[];
+    if(last.lh<6||last.lh>20)reasons.push(`⏰ Unusual login at <strong>${last.lh.toFixed(0)}:00</strong> — normal window is 8–10 AM`);
+    if(last.fa>80)reasons.push(`📁 Mass file access: <strong>${last.fa} files</strong> — baseline is ~20/day`);
+    if(last.pa>3)reasons.push(`🔐 Privilege escalation: <strong>${last.pa} attempts</strong> to access restricted systems`);
+    if(last.ue)reasons.push(`💾 USB device connected — external storage event detected`);
+    if(last.ss<0)reasons.push(`💬 Hostile comms: sentiment <strong>${last.ss.toFixed(2)}</strong> — normal is +0.5`);
+    if(reasons.length===0)reasons.push(`📊 Multiple signal vectors deviated from 30-day baseline simultaneously`);
+    for(const r of reasons)xaiHtml+=`<div class="reason-card">${r}</div>`;
+    xaiHtml+=`<div style="margin-top:12px;font-size:9px;color:var(--text3);letter-spacing:1px">INSIGHT assists security teams — it does not replace human judgment. All alerts require HR + Security review.</div>`;
+  } else {
+    xaiHtml+=`<div style="color:var(--text2);font-size:12px;margin-top:8px">No significant deviations detected. Employee behavior is within normal baseline parameters.</div>`;
+  }
+  document.getElementById('xai-box').innerHTML=xaiHtml;
+}
+
+/* ═══ SCREEN 3: ALERTS ═══ */
+function renderAlerts(){
+  const crit=empIds.filter(e=>maxIri(e)>=80).sort((a,b)=>maxIri(b)-maxIri(a));
+  const high=empIds.filter(e=>maxIri(e)>=60&&maxIri(e)<80).sort((a,b)=>maxIri(b)-maxIri(a));
+
+  document.getElementById('alert-kpi').innerHTML=`
+    <div class="kpi-card red"><div class="kpi-label">Critical Alerts</div><div class="kpi-value" style="color:#ff3f6c">${crit.length}</div><div class="kpi-sub">Immediate escalation required</div></div>
+    <div class="kpi-card amber"><div class="kpi-label">High Alerts</div><div class="kpi-value" style="color:#f0a500">${high.length}</div><div class="kpi-sub">Increased monitoring</div></div>
+    <div class="kpi-card"><div class="kpi-label">Total Anomalous Days</div><div class="kpi-value">${empIds.reduce((s,e)=>s+anomCount(e),0)}</div><div class="kpi-sub">Across all employees</div></div>
+    <div class="kpi-card"><div class="kpi-label">Employees Flagged</div><div class="kpi-value">${empIds.filter(e=>maxIri(e)>=60).length}</div><div class="kpi-sub">Out of ${empIds.length} monitored</div></div>
+  `;
+
+  let critHtml='';
+  for(const id of crit){
+    const pk=maxIri(id);
+    critHtml+=`<div class="alert-item">
+      <div class="alert-info">
+        <div class="alert-emp">${EMP[id].nm} · ${id}</div>
+        <div class="alert-detail">Peak IRI: ${pk.toFixed(1)} / 100 &nbsp;·&nbsp; Anomalous days: ${anomCount(id)} &nbsp;·&nbsp; Action: Escalate to HR + Security immediately</div>
+        <div class="alert-action" style="color:var(--red)">INVESTIGATE →</div>
+      </div>
+      <div class="alert-score critical">${pk.toFixed(0)}</div>
+    </div>`;
+  }
+  document.getElementById('critical-alerts').innerHTML=critHtml||'<div style="color:var(--text2);font-size:12px">No critical alerts.</div>';
+
+  let highHtml='';
+  for(const id of high){
+    const pk=maxIri(id);
+    highHtml+=`<div class="alert-item high">
+      <div class="alert-info">
+        <div class="alert-emp">${EMP[id].nm} · ${id}</div>
+        <div class="alert-detail">Peak IRI: ${pk.toFixed(1)} / 100 &nbsp;·&nbsp; Anomalous days: ${anomCount(id)} &nbsp;·&nbsp; Action: Increase monitoring frequency</div>
+        <div class="alert-action" style="color:var(--amber)">MONITOR →</div>
+      </div>
+      <div class="alert-score high-c">${pk.toFixed(0)}</div>
+    </div>`;
+  }
+  document.getElementById('high-alerts').innerHTML=highHtml||'<div style="color:var(--text2);font-size:12px">No high alerts.</div>';
+}
+
+/* ═══ SCREEN 4: LIVE DEMO ═══ */
+function scoreEvent(evt){
+  const access=Math.min((evt.fa/260+evt.pa/10)/2*100,100);
+  const drift=Math.min((Math.abs(evt.lh-9)/12+evt.ue)/2*100,100);
+  const sentiment=(1-evt.ss)/2*100;
+  const weighted=0.40*access+0.35*drift+0.25*sentiment;
+  return Math.min(Math.round(weighted*10)/10,100);
+}
+
+async function runSimulation(){
+  const btn=document.getElementById('attack-btn');
+  btn.disabled=true;
+  btn.innerHTML='<span class="spinner"></span> ANALYZING BEHAVIORAL ANOMALY...';
+
+  await new Promise(r=>setTimeout(r,1800));
+
+  const rogue={lh:2,fa:230,pa:9,es:58,ue:1,ss:-0.91};
+  const newScore=scoreEvent(rogue);
+
+  // Update score-after
+  document.getElementById('score-after').textContent=newScore.toFixed(1);
+  document.getElementById('score-after').className='score-number critical-score';
+  document.getElementById('score-after-badge').innerHTML='<span class="badge critical">🚨 CRITICAL</span>';
+
+  // Blast result
+  document.getElementById('blast-score').textContent=newScore.toFixed(0);
+  document.getElementById('blast-result').style.display='block';
+  document.getElementById('trigger-detail').style.display='block';
+
+  btn.innerHTML='🚨 &nbsp; SIMULATE INSIDER ATTACK &nbsp; 🚨';
+  btn.disabled=false;
+
+  document.getElementById('blast-result').scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+
+/* ─── INIT ─── */
+function populateSelect(){
+  const sel=document.getElementById('emp-select');
+  empIds.forEach(id=>{
+    const o=document.createElement('option');
+    o.value=id;o.textContent=`${id} — ${EMP[id].nm}`;
+    sel.appendChild(o);
+  });
+}
+
+populateSelect();
+updateSidebarStats();
+renderLeaderboard();
+</script>
+</body>
+</html>
